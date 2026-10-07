@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import json
+import os
+from typing import Any, Dict, Optional
+
+import requests
+
+from foxsd_ai.config import (
+    AI_PROVIDER,
+    ENABLE_LOCAL_FALLBACK,
+    MODEL_NAME,
+    OPENAI_API_KEY,
+    OPENAI_BASE_URL,
+)
+
+
+class AIClient:
+    """OpenAI-compatible client for real AI powering the cybersecurity system."""
+
+    def __init__(self):
+        self.provider = AI_PROVIDER
+        self.api_key = OPENAI_API_KEY
+        self.base_url = OPENAI_BASE_URL
+        self.model = MODEL_NAME
+        self.fallback_enabled = ENABLE_LOCAL_FALLBACK
+
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+    def build_payload(self, system_prompt: str, user_prompt: str, temperature: float = 0.2) -> Dict[str, Any]:
+        return {
+            "model": self.model,
+            "temperature": temperature,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+
+    def ask(self, system_prompt: str, user_prompt: str, user_context: Optional[str] = None) -> Dict[str, Any]:
+        if not self.is_configured():
+            if self.fallback_enabled:
+                return {
+                    "source": "local_fallback",
+                    "answer": self._fallback_response(user_prompt, user_context),
+                    "is_fallback": True,
+                }
+            raise RuntimeError("No AI provider credentials configured.")
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = self.build_payload(system_prompt, user_prompt)
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+            response.raise_for_status()
+            body = response.json()
+            content = body["choices"][0]["message"]["content"]
+            return {
+                "source": self.provider,
+                "answer": content.strip(),
+                "is_fallback": False,
+            }
+        except Exception:
+            if self.fallback_enabled:
+                return {
+                    "source": "local_fallback",
+                    "answer": self._fallback_response(user_prompt, user_context),
+                    "is_fallback": True,
+                }
+            raise
+
+    def _fallback_response(self, user_prompt: str, user_context: Optional[str] = None) -> str:
+        lower = (user_prompt or "") + " " + (user_context or "")
+        lower = lower.lower()
+
+        if any(word in lower for word in ["owasp", "xss", "sql", "csrf", "injection", "vuln", "security", "penetration", "threat"]):
+            return (
+                "أستطيع مساعدتك في تقييم الثغرات الأمنية، لكن الاتصال الحقيقي بنموذج AI غير مفعّل في هذا الوقت. "
+                "على مستوى المبدأ، استخدم هذه القواعد: تحديد الهدف، تحديد نقاط الضعف المحتملة، اختبار OWASP Top 10، فحص أساليب الهجوم، "
+                "تقييم أثر الاختراق، ثم إعداد خطة التصحيح والتخفيف."
+            )
+
+        return (
+            "أنا FoxSD AI المختص بالأمن السيبراني. أحتاج إلى تفاصيل أكثر حول الهدف، نوع التطبيق، النطاق، والخطر المتوقع "
+            "حتى أتمكن من تقديم تقييم أمني دقيق ومفيد."
+        )
+
+
+ai_client = AIClient()

@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from typing import Any, Dict, List
+
+from foxsd_ai.ai_client import ai_client
+
+BRAND = {
+    "company": "FoxSD",
+    "alias": "Fox",
+    "email": "foxsd520@gmail.com",
+}
+
+
+class PromptIntent:
+    def __init__(self, topic: str, confidence: float, tags: List[str]):
+        self.topic = topic
+        self.confidence = confidence
+        self.tags = tags
+
+
+class FoxSDReasoner:
+    """Lightweight local reasoning layer combined with a real LLM provider when configured."""
+
+    def __init__(self):
+        self.brand = BRAND
+        self.provider = ai_client
+
+    def detect_intent(self, text: str) -> PromptIntent:
+        lowered = text.lower()
+        tags = []
+
+        security_terms = [
+            "امن", "security", "cyber", "penetration", "vulnerability", "sql injection", "xss", "csrf",
+            "owasp", "auth", "threat", "incident", "malware", "exploit", "hardening", "log4j", "sqli"
+        ]
+        programming_terms = [
+            "برمجة", "code", "programming", "function", "api", "python", "javascript", "node", "react",
+            "backend", "frontend", "java", "golang", "rust"
+        ]
+        web_terms = ["موقع", "website", "site", "landing page", "frontend", "ui", "ux", "css", "html", "wordpress", "nextjs"]
+        app_terms = ["تطبيق", "app", "mobile", "android", "ios", "desktop", "flutter", "react native"]
+        business_terms = ["business", "project", "plan", "strategy", "startup", "analysis"]
+
+        if any(word in lowered for word in security_terms):
+            tags.append("cybersecurity")
+        if any(word in lowered for word in programming_terms):
+            tags.append("programming")
+        if any(word in lowered for word in web_terms):
+            tags.append("web-development")
+        if any(word in lowered for word in app_terms):
+            tags.append("app-development")
+        if any(word in lowered for word in business_terms):
+            tags.append("business")
+
+        if not tags:
+            tags = ["general"]
+
+        topic = max(tags, key=lambda tag: 1 if tag == "general" else 0)
+        confidence = 0.82 if len(tags) == 1 else 0.9
+        return PromptIntent(topic=topic, confidence=confidence, tags=tags)
+
+    def build_answer(self, text: str) -> Dict[str, Any]:
+        intent = self.detect_intent(text)
+
+        if intent.topic == "cybersecurity":
+            answer_source = self.provider.ask(
+                "أنت خبير أمن سيبراني. أجب بشكل فني ودقيق وموجز، مع إعطاء أولويات مخاطر وتخفيفات عملية.",
+                text,
+                user_context=text,
+            )
+            answer = answer_source.get("answer", "")
+            if answer_source.get("is_fallback", False):
+                answer = answer
+            return {
+                "brand": BRAND,
+                "intent": intent,
+                "answer": answer,
+                "timestamp": datetime.utcnow().isoformat(),
+                "provider": answer_source.get("source", "local"),
+                "is_fallback": answer_source.get("is_fallback", False),
+            }
+
+        suggestions = {
+            "programming": [
+                "حدد اللغة والمنصة والمشكلة التقنية.",
+                "قدم بنية المشروع، ومدخلات المخرجات، والطلبات المطلوبة.",
+                "إذا كان سؤالًا تقنيًا، أذكر اللغة والإنجاز المتوقع.",
+            ],
+            "cybersecurity": [
+                "حدد نوع النظام: ويب، API، خدمة سحابية، تطبيق جوال، أو شبكة.",
+                "اذكر ما إذا كان الطلب يتعلق بـ OWASP، اختبار اختراق، مراجعة كود، أو تقييم ثغرات.",
+                "إذا أمكن، أعطِ وصفًا للبيئة والهدف.",
+            ],
+            "web-development": [
+                "حدد نوع الموقع، التقنية، ونمط العمل.",
+                "هل يحتاج تسجيل دخول، نموذج دفع، لوحة تحكم، أو API؟",
+                "أذكر نوع التصميم والوظائف المطلوبة.",
+            ],
+            "app-development": [
+                "حدد نوع التطبيق، النظام الأساسي، والإطار المستخدم.",
+                "هل يحتاج إلى Auth، قاعدة بيانات، إشعارات، أو الدفع؟",
+                "أذكر الهدف الأساسي للتطبيق.",
+            ],
+            "business": [
+                "حدد الهدف التجاري، الفئة المستهدفة، ومؤشرات النجاح.",
+                "إذا كان المشروع تشغيليًا، أخبرني عن العمل الحالي ومشكلة التنفيذ.",
+            ],
+            "general": [
+                "أخبرني أكثر عن المقصود حتى أقدم إجابة دقيقة ومفيدة.",
+            ],
+        }
+
+        answer = (
+            "أنا FoxSD AI، أعمل كـ مساعد تقني متخصص في الأمن السيبراني، البرمجة، وتقييم الأنظمة. "
+            "أستطيع مساعدتك في تحليل الثغرات، مراجعة التعليمات البرمجية، اختبار الأمان، وتكوين خطط التخفيف."
+        )
+
+        if intent.topic in suggestions:
+            answer += " " + " ".join(suggestions[intent.topic])
+
+        return {
+            "brand": BRAND,
+            "intent": intent,
+            "answer": answer,
+            "timestamp": datetime.utcnow().isoformat(),
+            "provider": "local",
+            "is_fallback": True,
+        }
+
+
+if __name__ == "__main__":
+    ai = FoxSDReasoner()
+    sample = "أريد تقييم ثغرات XSS وSQL Injection في موقع ويب جاهز"
+    result = ai.build_answer(sample)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
